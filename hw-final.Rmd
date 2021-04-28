@@ -1,0 +1,20 @@
+---
+title: "Multidimensional Cointegration"
+author: "Oliver Schwartz"
+date: "4/28/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+First, we will choose a set of 8 closely related products. We will use Eurodollars maturing March 2021 through to December 2022 - i.e. `GEH1, GEM1, GEU1, GEZ1, GEM2, GEU2, GEZ2`. 
+
+Sample the quote midpoint prices at 1-minute intervals for the entire 23-hour trading day, for any day in October 2020 (our data set). 
+
+Our assumption is that all 8 prices move back and forth along a 1-dimensional line. (We will all take more degrees of freedom, for instance, we might assume the prices move along a 2d-plane in $\mathbb{R}^8$.)
+
+We compute exponential rolling averages using a 1-hour window time. 
+
+At each point in time, we compute the SVD of the covariance matrix. We compute a forecast price $P_*$, the projection of the actual price $P$ onto the first principal component of the covariance matrix.  
