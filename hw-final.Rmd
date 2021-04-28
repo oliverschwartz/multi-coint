@@ -84,13 +84,46 @@ for (sym in SYMS) {
 
 Let's plot `GEH1` and `GEZ1` to visualize the price relationship. 
 ```{r}
-plot(mid_by_sym[["GEH1"]]$mid, mid_by_sym[["GEZ1"]]$mid, type="o")
+plot(mid_by_sym[["GEH1"]]$mid, mid_by_sym[["GEZ1"]]$mid, type="o",
+     main=sprintf("GEH1/GEZ1 on %s", DATE), ylab="GEZ1", xlab="GEH1")
+grid()
+```
+
+Our assumption is that all 8 prices move back and forth along a 1-dimensional line. (We will all take more degrees of freedom, for instance, we might assume the prices move along a 2d-plane in $\mathbb{R}^8$.)
+
+We need to compute exponential rolling averages using a 1-hour window time. How do we compute an exponential rolling average? At a time $T$, the exponential average is given by the following update rule.
+$$
+EMA(t) = 
+\begin{cases}
+  p_t, &t = 0 \\
+  \alpha \cdot p_t + (1-\alpha) \cdot EMA(t-1), & t > 0
+\end{cases}
+$$
+
+```{r}
+WINDOW_SECS = 3600
+
+
 ```
 
 
 
-Our assumption is that all 8 prices move back and forth along a 1-dimensional line. (We will all take more degrees of freedom, for instance, we might assume the prices move along a 2d-plane in $\mathbb{R}^8$.)
+At each point in time, we compute the SVD of the covariance matrix. We compute a forecast price $P_*$, the projection of the actual price $P$ onto the first principal component of the covariance matrix.
 
-We compute exponential rolling averages using a 1-hour window time. 
 
-At each point in time, we compute the SVD of the covariance matrix. We compute a forecast price $P_*$, the projection of the actual price $P$ onto the first principal component of the covariance matrix.  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
