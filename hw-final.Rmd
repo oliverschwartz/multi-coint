@@ -7,11 +7,87 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+setwd("~/workspace/classes/multi-coint")
+```
+
+```{r}
+library(rkdb)
+library(digest)
+```
+
+
+```{r include=FALSE}
+rm(list=ls())
+
+# Set cache dir. 
+CACHE <- "./cache"
+dir.create(CACHE, showWarnings=FALSE)
+hfm <- open_connection("hfm", 2015)
+
+# Caches and retries query. Relies on global hfm variable and CACHE
+try_execute <- function(x) {
+  retriesLeft = 5
+  cacheName = sprintf("%s/%s.RDS", CACHE, digest::digest(x, algo="md5", 
+                                                         serialize=FALSE))
+  if (file.exists(cacheName)) {
+    return(readRDS(cacheName))
+  }
+
+  tmp = try(execute(hfm, x), silent=TRUE)
+  
+  # Retry some number of times. 
+  while (class(tmp) == "try-error" && retriesLeft > 0) {
+    retriesLeft = retriesLeft - 1;
+    port = 6000 + sample.int(9, 1) # try a random port
+    print(paste("[INFO] Sleeping 5 seconds and reconnecting... to port:", port))
+    Sys.sleep(5)
+    hfm = try(open_connection('hfm.princeton.edu', port), silent=TRUE)
+    if (class(hfm) != "try-error") { # Only try again if connection worked
+      tmp = try(execute(hfm, x), silent=TRUE)
+    }
+  }
+  
+  # Too many retries. 
+  if (class(tmp) == "try-error") {
+    print("Failed maximum number of retries. Quitting")
+    return()
+  }
+
+  # Save to cache.
+  saveRDS(tmp, file=cacheName)
+  tmp
+}
 ```
 
 First, we will choose a set of 8 closely related products. We will use Eurodollars maturing March 2021 through to December 2022 - i.e. `GEH1, GEM1, GEU1, GEZ1, GEM2, GEU2, GEZ2`. 
 
-Sample the quote midpoint prices at 1-minute intervals for the entire 23-hour trading day, for any day in October 2020 (our data set). 
+We sample the quote midpoint prices at 1-minute intervals for the entire 23-hour trading day, for any day in October 2020 (our data set). 
+```{r}
+# Constants. 
+SYMS <- c("GEH1", "GEM1", "GEU1", "GEZ1", "GEM2", "GEU2", "GEZ2")
+DATE <- "2020.10.05"
+NSEC <- 23 * 3600
+TMIN <- "-0D07:00:00"
+
+# Get midpoint data for all symbols. 
+mid_by_sym <- list()
+for (sym in SYMS) {
+  q1 <- sprintf("([] time:%s+1000000000 * til %d)", TMIN, NSEC)
+  q2 <- sprintf(
+    "select time, mid:0.5*(bid+ask) from quote where sym=`%s, date=%s",
+    sym, DATE
+  )
+  q3 <- sprintf("aj[`time; %s; %s]", q1, q2)
+  mid_by_sym[[sym]] <- try_execute(q3)
+}
+```
+
+Let's plot `GEH1` and `GEZ1` to visualize the price relationship. 
+```{r}
+plot(mid_by_sym[["GEH1"]]$mid, mid_by_sym[["GEZ1"]]$mid, type="o")
+```
+
+
 
 Our assumption is that all 8 prices move back and forth along a 1-dimensional line. (We will all take more degrees of freedom, for instance, we might assume the prices move along a 2d-plane in $\mathbb{R}^8$.)
 
