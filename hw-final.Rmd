@@ -22,7 +22,7 @@ rm(list=ls())
 # Set cache dir. 
 CACHE <- "./cache"
 dir.create(CACHE, showWarnings=FALSE)
-hfm <- open_connection("hfm", 2015)
+# hfm <- open_connection("hfm", 2015)
 
 # Caches and retries query. Relies on global hfm variable and CACHE
 try_execute <- function(x) {
@@ -121,32 +121,51 @@ rolling_stats <- function(x, y, wlen) {
   
   # Initialize values to compute exp mean, exp std. 
   N <- length(x)
-  ema <- c(x[1])    # Exponential average. 
-  mean <- c(x[1])   # Rectangular mean (for below two quantities). 
-  sqr <- c(x[1]**2) # Rectangular mean of squared prices. 
-  std <- c(0)       # Rectangular standard deviation. 
+  ema_x <- c(x[1])    # Exponential average. 
+  ema_y <- c(x[1])    
+  mean_x <- c(x[1])   # Rectangular mean (for below two quantities). 
+  mean_y <- c(x[1])   
+  sqr_x <- c(x[1]**2) # Rectangular mean of squared prices. 
+  sqr_y <- c(x[1]**2) 
+  std_x <- c(0)       # Rectangular standard deviation. 
+  std_y <- c(0)
+  prcx_prcy <- c(x[1] * y[1])
   
   # For ema calculation.  
-  A <- x[1]
-  B <- 1
+  A_x <- x[1]
+  A_y <- y[1]
+  B_x <- 1
+  B_y <- 1
   
   for (t in 2:N) {
-    A <- x[t] + exp(-1 / wlen) * A
-    B <- 1 + exp(-1 / wlen) * B
-    ema[t] <- A / B
+    A_x <- x[t] + exp(-1 / wlen) * A_x
+    A_y <- y[t] + exp(-1 / wlen) * A_y
+    B_x <- 1 + exp(-1 / wlen) * B_x
+    B_y <- 1 + exp(-1 / wlen) * B_y
+    ema_x[t] <- A_x / B_x
+    ema_y[t] <- A_y / B_y
     
     # If we have seen a window's worth of data. 
     if (t > wlen) {
-      mean[t] <- (x[t] + wlen*mean[t-1] - x[t-wlen]) / wlen
-      sqr[t] <- (x[t]**2 + wlen*sqr[t-1] - x[t-wlen]**2) / wlen
+      mean_x[t] <- (x[t] + wlen*mean_x[t-1] - x[t-wlen]) / wlen
+      mean_y[t] <- (y[t] + wlen*mean_y[t-1] - y[t-wlen]) / wlen
+      sqr_x[t] <- (x[t]**2 + wlen*sqr_x[t-1] - x[t-wlen]**2) / wlen
+      sqr_y[t] <- (y[t]**2 + wlen*sqr_y[t-1] - y[t-wlen]**2) / wlen
     } 
     
     # We haven't seen a window's worth of data (only t-1 prior values). 
     else { 
-      mean[t] <- (x[t] + (t-1)*mean[t-1]) / t
-      sqr[t] <- (x[t]**2 + (t-1)*sqr[t-1]) / t
+      mean_x[t] <- (x[t] + (t-1)*mean_x[t-1]) / t
+      mean_y[t] <- (y[t] + (t-1)*mean_y[t-1]) / t
+      sqr_x[t] <- (x[t]**2 + (t-1)*sqr_x[t-1]) / t
+      sqr_y[t] <- (y[t]**2 + (t-1)*sqr_y[t-1]) / t
     }
-    std[t] <- sqrt(sqr[t] - mean[t]**2)
+    std_x[t] <- sqrt(sqr_x[t] - mean_x[t]**2)
+    std_y[t] <- sqrt(sqr_y[t] - mean_y[t]**2)
+    
+    prc1prc2[i] <- (prc1prc2[i-1] * (i-1) + dt1$mid[i]*dt2$mid[i])/i
+    
+    corr[i] <- (prc1prc2[i]-mean1[i]*mean2[i]) / (std1[i]*std2[i])
   }
 
   return(list(ema=ema,std=std))
@@ -154,9 +173,9 @@ rolling_stats <- function(x, y, wlen) {
 ```
 
 ```{r}
-for (sym in SYMS[1]) {
-  mid_by_sym[[sym]]$ema <- exp_ma(mid_by_sym[[sym]]$mid, wlen=3600)
-}
+# for (sym in SYMS[1]) {
+#   mid_by_sym[[sym]]$ema <- exp_ma(mid_by_sym[[sym]]$mid, wlen=3600)
+# }
 ```
 
 
