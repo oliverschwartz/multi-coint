@@ -139,6 +139,9 @@ rolling_stats <- function(x, y, wlen) {
   prcx_prcy <- c(x[1] * y[1])
   corr <- c(NA)
   
+  print(x)
+  print(y)
+  
   # For ema calculation.  
   A_x <- x[1]
   A_y <- y[1]
@@ -197,7 +200,7 @@ rolling_stats <- function(x, y, wlen) {
   ))
 }
 
-rolling_stats(c(1,2,3), c(1,2,3), wlen=2)
+rolling_stats(c(1,2,3,4-2,1,0), c(1,2,0,1,2,3,2.9), wlen=3)
 ```
 
 
@@ -210,8 +213,8 @@ for (i in 1:(length(SYMS)-1)) {
   for (j in (i+1):length(SYMS)) {
     key <- paste0(SYMS[i], ",", SYMS[j])
     pairwise_stats[[key]] <- rolling_stats(
-      x=mid_by_sym[[SYMS[i]]]$mid[1:100],
-      y=mid_by_sym[[SYMS[j]]]$mid[1:100],
+      x=mid_by_sym[[SYMS[i]]]$mid[1:10],
+      y=mid_by_sym[[SYMS[j]]]$mid[1:10],
       wlen=WINDOW_LEN
     )
     break
