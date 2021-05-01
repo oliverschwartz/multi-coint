@@ -8,7 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 # Setup.
 knitr::opts_chunk$set(echo = TRUE)
-setwd("~/workspace/classes/multi-coint") # Dan TODO: change this dir. 
+setwd("C:/Users/dangi/Dropbox/Classes/orf445/multi-coint") # Dan TODO: change this dir. 
 
 # Imports. 
 library(rkdb)
@@ -22,7 +22,7 @@ rm(list=ls())
 # Set cache dir. 
 CACHE <- "./cache"
 dir.create(CACHE, showWarnings=FALSE)
-hfm <- open_connection("hfm", 2015)
+#hfm <- open_connection("hfm", 2015)
 
 # Caches and retries query. Relies on global hfm variable and CACHE
 try_execute <- function(x) {
@@ -144,12 +144,9 @@ rolling_stats <- function(x, y, wlen) {
   for (t in 2:N) {
     
     # Tracking. 
-    if (TRUE) {
-      print(t)
-      print(std_x)
-      print(std_y)
-      print("")
-    }
+    # if (t %% 10000 == 0) {
+    #   print(t)
+    # }
     
     # EMA updates. 
     A_x <- x[t] + exp(-1 / wlen) * A_x
@@ -160,17 +157,22 @@ rolling_stats <- function(x, y, wlen) {
     ema_y[t] <- A_y / B_y
     
     # If we have seen a window's worth of data. 
-    if (t > wlen) {
-      sqr_x[t] <- sqr_x[t] + (x[t]**2 - x[t-wlen]**2) / wlen
-      sqr_y[t] <- sqr_y[t] + (y[t]**2 - y[t-wlen]**2) / wlen
-    }
-    else { # We haven't seen a window's worth of data. 
-      sqr_x[t] <- (x[t]**2 + (t-1)*sqr_x[t-1]) / t
-      sqr_y[t] <- (y[t]**2 + (t-1)*sqr_y[t-1]) / t
-    }
+    # if (t > wlen) {
+    #   sqr_x[t] <- sqr_x[t] + (x[t]**2 - x[t-wlen]**2) / wlen
+    #   sqr_y[t] <- sqr_y[t] + (y[t]**2 - y[t-wlen]**2) / wlen
+    # }
+    # else { # We haven't seen a window's worth of data. 
+    #   sqr_x[t] <- (x[t]**2 + (t-1)*sqr_x[t-1]) / t
+    #   sqr_y[t] <- (y[t]**2 + (t-1)*sqr_y[t-1]) / t
+    # }
+    
+    start_idx = max(1,t-wlen)
+    
+    std_x[t] <- mean((x[start_idx:t]-ema_x[t])**2)
+    std_y[t] <- mean((y[start_idx:t]-ema_y[t])**2)
     
     # Compute standard deviation and correlation. 
-    browser()
+    #browser()
     # std_x[t] <- sqrt(sqr_x[t] - ema_x[t]**2)
     # std_y[t] <- sqrt(sqr_y[t] - ema_y[t]**2)
   }
@@ -183,6 +185,8 @@ rolling_stats <- function(x, y, wlen) {
   ))
 }
 
+x <- c(1,2,3,-5,7,-2,-1,0,0,0)
+y <- c(1,2,3,4,5,6,7,8,9,10,11)
 rolling_stats(x, y, wlen=3)
 ```
 
@@ -194,17 +198,20 @@ WINDOW_LEN <- 3600
 for (i in 1:(length(SYMS)-1)) {
   for (j in (i+1):length(SYMS)) {
     key <- paste0(SYMS[i], ",", SYMS[j])
+    print(key)
     pairwise_stats[[key]] <- rolling_stats(
-      x=mid_by_sym[[SYMS[i]]]$mid[1:10],
-      y=mid_by_sym[[SYMS[j]]]$mid[1:10],
+      x=mid_by_sym[[SYMS[i]]]$mid,
+      y=mid_by_sym[[SYMS[j]]]$mid,
       wlen=WINDOW_LEN
     )
-    break
   }
-  break
 }
 ```
 
+```{r}
+plot(mid_by_sym[["GEM1"]])
+plot(pairwise_stats[["GEH1,GEM1"]]$std_y)
+```
 
 
 At each point in time, we compute the SVD of the covariance matrix. We compute a forecast price $P_*$, the projection of the actual price $P$ onto the first principal component of the covariance matrix.
