@@ -120,7 +120,7 @@ $$
 
 ```{r}
 
-# Compute the rolling statistics for a time series.
+# Compute the rolling statistics for two time series.
 # Returns a list with:
 # - ema: exponentially weighted average for given window size.
 # - std: rectangular standard deviation for given window size. 
@@ -130,17 +130,10 @@ rolling_stats <- function(x, y, wlen) {
   N <- length(x)
   ema_x <- c(x[1])      # Exponential average. 
   ema_y <- c(y[1])    
-  rectmean_x <- c(x[1]) # Rectangular mean (for below two quantities). 
-  rectmean_y <- c(y[1])   
   sqr_x <- c(x[1]**2)   # Rectangular mean of squared prices. 
   sqr_y <- c(x[1]**2) 
   std_x <- c(0)         # Rectangular standard deviation. 
   std_y <- c(0)
-  prcx_prcy <- c(x[1] * y[1])
-  corr <- c(NA)
-  
-  print(x)
-  print(y)
   
   # For ema calculation.  
   A_x <- x[1]
@@ -151,10 +144,11 @@ rolling_stats <- function(x, y, wlen) {
   for (t in 2:N) {
     
     # Tracking. 
-    if (t %% 10 == 0) {
+    if (TRUE) {
       print(t)
       print(std_x)
       print(std_y)
+      print("")
     }
     
     # EMA updates. 
@@ -167,42 +161,30 @@ rolling_stats <- function(x, y, wlen) {
     
     # If we have seen a window's worth of data. 
     if (t > wlen) {
-      rectmean_x[t] <- (x[t] + wlen*rectmean_x[t-1] - x[t-wlen]) / wlen
-      rectmean_y[t] <- (y[t] + wlen*rectmean_y[t-1] - y[t-wlen]) / wlen
-      sqr_x[t] <- (x[t]**2 + wlen*sqr_x[t-1] - x[t-wlen]**2) / wlen
-      sqr_y[t] <- (y[t]**2 + wlen*sqr_y[t-1] - y[t-wlen]**2) / wlen
-      prcx_prcy[t] <- (
-        x[t]*y[t] + wlen*prcx_prcy[t-1] - x[t-wlen]*y[t-wlen]
-        ) / wlen
-    } 
-    
-    # We haven't seen a window's worth of data (only t-1 prior values). 
-    else { 
-      rectmean_x[t] <- (x[t] + (t-1)*rectmean_x[t-1]) / t
-      rectmean_y[t] <- (y[t] + (t-1)*rectmean_y[t-1]) / t
+      sqr_x[t] <- sqr_x[t] + (x[t]**2 - x[t-wlen]**2) / wlen
+      sqr_y[t] <- sqr_y[t] + (y[t]**2 - y[t-wlen]**2) / wlen
+    }
+    else { # We haven't seen a window's worth of data. 
       sqr_x[t] <- (x[t]**2 + (t-1)*sqr_x[t-1]) / t
       sqr_y[t] <- (y[t]**2 + (t-1)*sqr_y[t-1]) / t
-      prcx_prcy[t] <- (x[t]*y[t] + (t-1)*prcx_prcy[t-1]) / t
     }
     
     # Compute standard deviation and correlation. 
-    std_x[t] <- sqrt(sqr_x[t] - rectmean_x[t]**2)
-    std_y[t] <- sqrt(sqr_y[t] - rectmean_y[t]**2)
-    corr[t] <- (prcx_prcy[t] - rectmean_x[t]*rectmean_y[t]) / (std_x[t]*std_y[t])
+    browser()
+    # std_x[t] <- sqrt(sqr_x[t] - ema_x[t]**2)
+    # std_y[t] <- sqrt(sqr_y[t] - ema_y[t]**2)
   }
 
   return(list(
-    corr=corr, 
     ema_x=ema_x, 
     ema_y=ema_y, 
-    rectmean_x=rectmean_x,
-    rectmean_y=rectmean_y
+    std_x=std_x,
+    std_y=std_y
   ))
 }
 
-rolling_stats(c(1,2,3,4-2,1,0), c(1,2,0,1,2,3,2.9), wlen=3)
+rolling_stats(x, y, wlen=3)
 ```
-
 
 For every unique pair of instruments, compute their rolling statistics and their rolling correlation. 
 ```{r}
