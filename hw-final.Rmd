@@ -67,7 +67,7 @@ We sample the quote midpoint prices at 1-minute intervals for the entire 23-hour
 ```{r}
 # Constants. 
 SYMS <- c("GEH1", "GEM1", "GEU1", "GEZ1", "GEH2", "GEM2", "GEU2", "GEZ2")
-NSYM <- NSYM
+NSYM <- length(SYMS)
 DATE <- "2020.10.05"
 NSEC <- 23 * 3600
 TMIN <- "-0D07:00:00"
@@ -83,6 +83,17 @@ for (sym in SYMS) {
   q3 <- sprintf("aj[`time; %s; %s]", q1, q2)
   mid_by_sym[[sym]] <- try_execute(q3)
 }
+
+# Get the ticksize. 
+TICKSZ <- try_execute("select minpxincr from instinfo where inst=`GE")$minpxincr
+```
+
+For convenience, let's create a matrix of midpoint prices. 
+```{r}
+mids <- matrix(data=NA, nrow=NSEC, ncol=NSYM)
+for (i in 1:NSYM) {
+  mids[,i] <- mid_by_sym[[SYMS[i]]]$mid
+}
 ```
 
 Let's plot `GEH1` and `GEZ1` to visualize the price relationship. Eurodollars are a large tick asset (with deep order books) so we might expect very minimal price fluctuations. 
@@ -91,6 +102,7 @@ plot(mid_by_sym[["GEH1"]]$mid, mid_by_sym[["GEZ1"]]$mid, type="o",
      main=sprintf("GEH1/GEZ1 on %s", DATE), xlab="GEH1", ylab="GEZ1")
 grid()
 ```
+
 
 ## Rolling statistics
 
@@ -131,9 +143,7 @@ rolling_stats <- function(x, y, wlen) {
   N <- length(x)
   ema_x <- c(x[1])      # Exponential average. 
   ema_y <- c(y[1])    
-  sqr_x <- c(x[1]**2)   # Rectangular mean of squared prices. 
-  sqr_y <- c(x[1]**2) 
-  std_x <- c(0)         # Rectangular standard deviation. 
+  std_x <- c(0)         # Standard deviation. 
   std_y <- c(0)
   corr <- c(0)          # Correlation of assets. 
   
@@ -145,11 +155,6 @@ rolling_stats <- function(x, y, wlen) {
   
   for (t in 2:N) {
     
-    # Tracking. 
-    # if (t %% 10000 == 0) {
-    #   print(t)
-    # }
-    
     # EMA updates. 
     A_x <- x[t] + exp(-1 / wlen) * A_x
     A_y <- y[t] + exp(-1 / wlen) * A_y
@@ -158,27 +163,12 @@ rolling_stats <- function(x, y, wlen) {
     ema_x[t] <- A_x / B_x
     ema_y[t] <- A_y / B_y
     
-    # If we have seen a window's worth of data. 
-    # if (t > wlen) {
-    #   sqr_x[t] <- sqr_x[t] + (x[t]**2 - x[t-wlen]**2) / wlen
-    #   sqr_y[t] <- sqr_y[t] + (y[t]**2 - y[t-wlen]**2) / wlen
-    # }
-    # else { # We haven't seen a window's worth of data. 
-    #   sqr_x[t] <- (x[t]**2 + (t-1)*sqr_x[t-1]) / t
-    #   sqr_y[t] <- (y[t]**2 + (t-1)*sqr_y[t-1]) / t
-    # }
-    
+    # Standard dev and correlation. 
     start_idx = max(1,t-wlen)
-    
     std_x[t] <- sqrt(mean((x[start_idx:t]-ema_x[t])**2))
     std_y[t] <- sqrt(mean((y[start_idx:t]-ema_y[t])**2))
     cov <- mean((y[start_idx:t] - ema_y[t]) * (x[start_idx:t] - ema_x[t]))
     corr[t] <- cov / (std_x[t] * std_y[t])
-    
-    # Compute standard deviation and correlation. 
-    #browser()
-    # std_x[t] <- sqrt(sqr_x[t] - ema_x[t]**2)
-    # std_y[t] <- sqrt(sqr_y[t] - ema_y[t]**2)
   }
 
   return(list(
@@ -195,28 +185,64 @@ For every unique pair of instruments, compute their rolling statistics and their
 ```{r}
 pairwise_stats <- list()
 WINDOW_LEN <- 3600
+PATH <- "cache/pairwise_stats.rds"
 
-for (i in 1:(NSYM-1)) {
-  for (j in (i+1):NSYM) {
-    key <- paste0(SYMS[i], ",", SYMS[j])
-    print(key)
-    pairwise_stats[[key]] <- rolling_stats(
-      x=mid_by_sym[[SYMS[i]]]$mid,
-      y=mid_by_sym[[SYMS[j]]]$mid,
-      wlen=WINDOW_LEN
-    )
+# Check if we have already cached this result. 
+if (file.exists(PATH)) {
+  pairwise_stats <- readRDS(PATH)
+} else {
+  
+  # For every pair of assets, get the rolling correlations, means, & stdevs.
+  for (i in 1:(NSYM-1)) {
+    for (j in (i+1):NSYM) {
+      key <- paste0(SYMS[i], ",", SYMS[j])
+      print(key)
+      pairwise_stats[[key]] <- rolling_stats(
+        x=mid_by_sym[[SYMS[i]]]$mid,
+        y=mid_by_sym[[SYMS[j]]]$mid,
+        wlen=WINDOW_LEN
+      )
+    }
   }
+  
+  # Save to cache. 
+  saveRDS(pairwise_stats, file=PATH)
 }
-
-saveRDS(pairwise_stats, file="cache/pairwise_stats.rds")
 ```
 
-At every point in time, we want to compute the eigenvectors of the correlation matrix. We then project each point into this eigenvector space.
+## Signal construction
+
+At every point in time, we have computed the correlation matrix for this group of assets. Our assumption is that the eigenvectors of this correlation matrix are either mean-reverting or random walks. We assume that the largest eigenvectors are always the random walk, and the later ones (with smaller singular values) are mean-reverting. In theory, it might be possible that the first and third components are mean reverting while the second is a random walk; however, testing this would require testing $2^n$ subsets which is impractical. Nevertheless, this assumption makes sense. In the random walk direction, you expect the variance to keep increasing in time, while in a mean reverting direction you expect it to reach a maximum and stabilize. 
+
+At every point in time, we want to compute the eigenvectors of the correlation matrix. That is, given our correlation matrix $\hat{\Sigma}$, we do eigen-decomposition to get eigenvectors $V$.
+
+We then project each vector of prices $\vec{x}$ into this eigenvector space by multiplying by $V = V^T$: 
+$$
+\vec{\xi} = V \vec{x}
+$$
+
+By assumption, we assume that some components of this vector are mean-reverting, so we set them to zero and convert back into the original vector space (of prices): 
+$$
+\vec{x}^* = D V \begin{bmatrix} \xi_1 \\ \xi_2 \\ 0 \\ \vdots \end{bmatrix} + \underline{\vec{x}}
+$$
+Here, $D$ is the diagonal matrix of standard deviations, and $\underline{\vec{x}}$ is the exponential mean of prices. Essentially, this projects the vector (in eigen-space) back onto the mean-reverting subspace, converts this back to our price space, and unnormalizes by re-scaling by volatility and adding back the exponential mean. 
+
+
 ```{r}
-for (t in 5000:NSEC) {
+missing <- 0
+signals <- matrix(data=NA, nrow=NSEC, ncol=NSYM)
+
+for (t in 1:NSEC) {
   
-  # Get z-scores of all prices for time t. 
+  # Progress tracking. 
+  if (t %% 10000 == 0) {
+    print(t)
+  }
+  
+  # Get z-scores, exponential means, stdevs of all prices for time t. 
   zs <- vector(mode="numeric", length=NSYM)
+  emas <- vector(mode="numeric", length=NSYM)
+  stds <- vector(mode="numeric", length=NSYM)
   
   # Create an 8x8 matrix and fill it with correlations. 
   m <- matrix(1, nrow=NSYM, ncol=NSYM)
@@ -226,35 +252,63 @@ for (t in 5000:NSEC) {
       m[i,j] <- pairwise_stats[[key]]$corr[t]
       m[j,i] <- m[i,j]
       
-      if (m[i,j] == NA) {
-        browser()
-      }
-      
       # Get the z-score. 
       zs[i] <- (mid_by_sym[[SYMS[i]]]$mid[t] - 
                 pairwise_stats[[key]]$ema_x[t]) / pairwise_stats[[key]]$std_x[t]
       zs[j] <- (mid_by_sym[[SYMS[j]]]$mid[t] - 
                 pairwise_stats[[key]]$ema_y[t]) / pairwise_stats[[key]]$std_y[t]
+      
+      # Get exponential means, stdevs, and prices.
+      emas[i] <- pairwise_stats[[key]]$ema_x[t]
+      emas[j] <- pairwise_stats[[key]]$ema_y[t]
+      stds[i] <- pairwise_stats[[key]]$std_x[t]
+      stds[j] <- pairwise_stats[[key]]$std_y[t]
     }
   }
   
-  # Get eigenvectors. 
-  evs <- eigen(m)$vectors
-  
-  # Project onto eigenvector space. 
-  proj <- evs %*% zs
-
+  # If there are any missing  correlation values, don't calculate the signal.
+  if (any(is.na(m))) {
+    missing <- missing + 1
+  } else {
+      
+    # Get eigenvectors & project onto eigenvector space. 
+    V <- eigen(m)$vectors
+    proj <- V %*% zs
+    
+    # Set mean reverting directions to 0 to project onto reverting subspace.
+    proj[3:8,] <- 0
+    
+    D <- diag(stds)
+    p_star <- D %*% V %*% proj + emas
+    signals[t,] <- t(p_star) - mids[t,]
+  }
 }
+```
+To evaluate the strength of this signal, let's look at the correlation of forward price changes at a given lag with the signal, for each asset. 
+```{r}
+LAG <- 120
+
+mid_diff <- diff(mids, lag=LAG) / TICKSZ
+signals_shifted <- head(signals, -LAG) / TICKSZ # Drop last LAG elements. 
 ```
 
 ```{r}
-plot(mid_by_sym[["GEZ2"]]$mid)
+for (i in 1:NSYM) {
+  y <- mid_diff[,i]
+  x <- signals_shifted[,i]
+  
+  plot(x, y, xlab="Signal (ticks)", ylab=sprintf(
+       "Forward price change (ticks)", LAG),
+       main=sprintf("%s Signal and forward price motions on %s", SYMS[i], DATE))
+  grid()
+  model = lm(y ~ x + 0)
+  abline(model)
+  gradient = summary(model)$coefficients[1,1]
+  legend(x="bottomleft", legend=c(sprintf("gradient: %f", gradient)))
+}
 ```
 
 
-
-
-At each point in time, we compute the SVD of the covariance matrix. We compute a forecast price $P_*$, the projection of the actual price $P$ onto the first principal component of the covariance matrix.
 
 
 
