@@ -8,7 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 # Setup.
 knitr::opts_chunk$set(echo = TRUE)
-setwd("C:/Users/dangi/Dropbox/Classes/orf445/multi-coint") # Dan TODO: change this dir. 
+setwd("~/workspace/classes/multi-coint") # Dan TODO: change this dir. 
 
 # Imports. 
 library(rkdb)
@@ -67,6 +67,7 @@ We sample the quote midpoint prices at 1-minute intervals for the entire 23-hour
 ```{r}
 # Constants. 
 SYMS <- c("GEH1", "GEM1", "GEU1", "GEZ1", "GEH2", "GEM2", "GEU2", "GEZ2")
+NSYM <- NSYM
 DATE <- "2020.10.05"
 NSEC <- 23 * 3600
 TMIN <- "-0D07:00:00"
@@ -134,6 +135,7 @@ rolling_stats <- function(x, y, wlen) {
   sqr_y <- c(x[1]**2) 
   std_x <- c(0)         # Rectangular standard deviation. 
   std_y <- c(0)
+  corr <- c(0)          # Correlation of assets. 
   
   # For ema calculation.  
   A_x <- x[1]
@@ -168,8 +170,10 @@ rolling_stats <- function(x, y, wlen) {
     
     start_idx = max(1,t-wlen)
     
-    std_x[t] <- mean((x[start_idx:t]-ema_x[t])**2)
-    std_y[t] <- mean((y[start_idx:t]-ema_y[t])**2)
+    std_x[t] <- sqrt(mean((x[start_idx:t]-ema_x[t])**2))
+    std_y[t] <- sqrt(mean((y[start_idx:t]-ema_y[t])**2))
+    cov <- mean((y[start_idx:t] - ema_y[t]) * (x[start_idx:t] - ema_x[t]))
+    corr[t] <- cov / (std_x[t] * std_y[t])
     
     # Compute standard deviation and correlation. 
     #browser()
@@ -181,13 +185,10 @@ rolling_stats <- function(x, y, wlen) {
     ema_x=ema_x, 
     ema_y=ema_y, 
     std_x=std_x,
-    std_y=std_y
+    std_y=std_y,
+    corr=corr
   ))
 }
-
-x <- c(1,2,3,-5,7,-2,-1,0,0,0)
-y <- c(1,2,3,4,5,6,7,8,9,10,11)
-rolling_stats(x, y, wlen=3)
 ```
 
 For every unique pair of instruments, compute their rolling statistics and their rolling correlation. 
@@ -195,8 +196,8 @@ For every unique pair of instruments, compute their rolling statistics and their
 pairwise_stats <- list()
 WINDOW_LEN <- 3600
 
-for (i in 1:(length(SYMS)-1)) {
-  for (j in (i+1):length(SYMS)) {
+for (i in 1:(NSYM-1)) {
+  for (j in (i+1):NSYM) {
     key <- paste0(SYMS[i], ",", SYMS[j])
     print(key)
     pairwise_stats[[key]] <- rolling_stats(
@@ -206,12 +207,51 @@ for (i in 1:(length(SYMS)-1)) {
     )
   }
 }
+
+saveRDS(pairwise_stats, file="cache/pairwise_stats.rds")
+```
+
+At every point in time, we want to compute the eigenvectors of the correlation matrix. We then project each point into this eigenvector space.
+```{r}
+for (t in 5000:NSEC) {
+  
+  # Get z-scores of all prices for time t. 
+  zs <- vector(mode="numeric", length=NSYM)
+  
+  # Create an 8x8 matrix and fill it with correlations. 
+  m <- matrix(1, nrow=NSYM, ncol=NSYM)
+  for (i in 1:(NSYM-1)) {
+    for (j in (i+1):NSYM) {
+      key <- paste0(SYMS[i], ",", SYMS[j])
+      m[i,j] <- pairwise_stats[[key]]$corr[t]
+      m[j,i] <- m[i,j]
+      
+      if (m[i,j] == NA) {
+        browser()
+      }
+      
+      # Get the z-score. 
+      zs[i] <- (mid_by_sym[[SYMS[i]]]$mid[t] - 
+                pairwise_stats[[key]]$ema_x[t]) / pairwise_stats[[key]]$std_x[t]
+      zs[j] <- (mid_by_sym[[SYMS[j]]]$mid[t] - 
+                pairwise_stats[[key]]$ema_y[t]) / pairwise_stats[[key]]$std_y[t]
+    }
+  }
+  
+  # Get eigenvectors. 
+  evs <- eigen(m)$vectors
+  
+  # Project onto eigenvector space. 
+  proj <- evs %*% zs
+
+}
 ```
 
 ```{r}
-plot(mid_by_sym[["GEM1"]])
-plot(pairwise_stats[["GEH1,GEM1"]]$std_y)
+plot(mid_by_sym[["GEZ2"]]$mid)
 ```
+
+
 
 
 At each point in time, we compute the SVD of the covariance matrix. We compute a forecast price $P_*$, the projection of the actual price $P$ onto the first principal component of the covariance matrix.
