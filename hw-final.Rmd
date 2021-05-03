@@ -87,21 +87,19 @@ for (sym in SYMS) {
   )
   q3 <- sprintf("aj[`time; %s; %s]", q1, q2)
   mid_by_sym[[sym]] <- try_execute(q3)
-  print(mid_by_sym[[sym]]$mid[1:10])
 }
 
 # Get the ticksize.
 TICKSZ <- try_execute(paste0("select minpxincr from instinfo where inst=`",
                              INST))$minpxincr
-```
 
-For convenience, let's create a matrix of midpoint prices. 
-```{r}
+# For convenience, let's create a matrix of midpoint prices. 
 mids <- matrix(data=NA, nrow=NSEC, ncol=NSYM)
 for (i in 1:NSYM) {
   mids[,i] <- mid_by_sym[[SYMS[i]]]$mid
 }
 ```
+
 
 Let's plot a few symbols to visualize the price relationship. 
 ```{r}
@@ -113,17 +111,16 @@ grid()
 
 ## Rolling statistics
 
-Our assumption is that all 8 prices move back and forth along a 1-dimensional line. (We will all take more degrees of freedom, for instance, we might assume the prices move along a 2d-plane in $\mathbb{R}^8$.)
+Our assumption is that all 8 prices move back and forth along some subspace, for instance a 1-dimensional line or a 2-dimensional plane. By introducing more degrees of freedom, we model the prices as moving along a higher dimensional subspace in $\mathbb{R}^8$.
 
-We need to compute exponential rolling averages using a 1-hour window time. 
-
-How do we compute an exponential rolling average? At a time $n$, the exponential average is given by $A_n / B_n$ where:
+First, we must compute exponential rolling averages using a 1-hour window time. At a time $n$, the exponential average is given by $A_n / B_n$ where:
 $$
 \begin{align*}
 A_n &= \sum_{j=1}^n e^{-(n-j) / m} x_j \\
 B_n &= \sum_{j=1}^n e^{-(n-j) / m} 
 \end{align*}
 $$
+We adjust $m$ according to our desired window size. For simplicity, we will use 1 hour. The smaller this value, the quicker the weights decay, and the less past values influence the exponential average. 
 
 This yields the following recursive update rules, which makes this computation constant at every time step, i.e. O(1).
 $$
@@ -135,8 +132,18 @@ A_n &= e^{-(n-j) / m} x_j = x_n + \sum_{j=1}^{n-1}e^{-(n-j) / m} x_j \\
 $$
 Similarly, for $B_n$: 
 $$
-B_n = 1 + e^{-1/m}\cdot B_{n-1}
+\begin{align*}
+B_n &= \sum_{j=1}^n e^{-(n-j) / m} \\
+&= 1 + \sum_{j=1}^{n-1} e^{-(n-j)/m} \\
+&= 1 + e^{-1/m}\cdot B_{n-1}
+\end{align*}
 $$
+
+Computing exponential correlations is a little more involved. Given the exponential average at some time $t=n$, $\frac{A_n}{B_n}$, the exponential covariance $Cov_e$ is simply the weighted mean from the beginning of time relative to the current exponential average. 
+$$
+
+$$
+
 
 ```{r}
 
