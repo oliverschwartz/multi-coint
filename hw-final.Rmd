@@ -139,14 +139,19 @@ B_n &= \sum_{j=1}^n e^{-(n-j) / m} \\
 \end{align*}
 $$
 
-Computing exponential correlations is a little more involved. Given the exponential average at some time $t=n$, $\frac{A_n}{B_n}$, the exponential covariance $Cov_e$ is simply the weighted mean from the beginning of time relative to the current exponential average. 
+Computing exponential correlations is a little more involved. Given the exponential average at some time $t=n$ for some instrument $x$, $EMA_x(n) = \frac{A_n}{B_n}$, the exponential covariance $Cov_{e}$ is simply the weighted mean from the beginning of time relative to the current exponential average:
 $$
+Cov_{e} = \sum_{j=1}^n e^{-(n-j)/m} \Big(x_j - EMA_x(n)\Big)\Big(y_j - EMA_y(n)\Big)
+$$
+Similarly, the exponential standard deviation would be: 
+$$
+\sigma_e = \sqrt{\sum_{j=1}^n e^{-(n-j)/m} \Big(x_j - EMA_x(n)\Big)^2}
+$$
+To find the correlation, we simply normalize the covariance by dividing by the standard deviations of both assets. 
 
-$$
 
 
 ```{r}
-
 # Compute the rolling statistics for two time series.
 # Returns a list with:
 # - ema: exponentially weighted average for given window size.
@@ -177,12 +182,23 @@ rolling_stats <- function(x, y, wlen) {
     ema_x[t] <- A_x / B_x
     ema_y[t] <- A_y / B_y
     
-    # Standard dev and correlation. 
-    start_idx = max(1,t-wlen)
-    std_x[t] <- sqrt(mean((x[start_idx:t]-ema_x[t])**2))
-    std_y[t] <- sqrt(mean((y[start_idx:t]-ema_y[t])**2))
-    cov <- mean((y[start_idx:t] - ema_y[t]) * (x[start_idx:t] - ema_x[t]))
-    corr[t] <- cov / (std_x[t] * std_y[t])
+    # Exponential weights. 
+    js <- 1:t
+    weights <- exp(-(t-js)/wlen)
+    
+    # Standard deviation and correlation using exponential weights.
+    x_sub_ema <- x[1:t] - ema_x[t]
+    y_sub_ema <- y[1:t] - ema_y[t]
+    std_x[t] <- sqrt(sum(weights * x_sub_ema^2))
+    std_y[t] <- sqrt(sum(weights * y_sub_ema^2))
+    corr[t] <- sum(weights * x_sub_ema * y_sub_ema) / (std_x[t] * std_y[t])
+    
+    # # Standard dev and correlation.
+    # start_idx = max(1,t-wlen)
+    # std_x[t] <- sqrt(mean((x[start_idx:t]-ema_x[t])**2))
+    # std_y[t] <- sqrt(mean((y[start_idx:t]-ema_y[t])**2))
+    # cov <- mean((y[start_idx:t] - ema_y[t]) * (x[start_idx:t] - ema_x[t]))
+    # corr[t] <- cov / (std_x[t] * std_y[t])
   }
 
   return(list(
@@ -195,27 +211,31 @@ rolling_stats <- function(x, y, wlen) {
 }
 ```
 
-For every unique pair of instruments, compute their rolling statistics and their rolling correlation. 
+
+For every unique pair of instruments, compute their rolling statistics (exponential average and exponential correlation).
 ```{r}
 pairwise_stats <- list()
 WINDOW_LEN <- 3600
-PATH <- "cache/pairwise_stats.rds"
+PATH <- sprintf("cache/%s_%s_pairwise_stats.rds", INST, DATE)
 
 # Check if we have already cached this result. 
-if (FALSE) { #file.exists(PATH)) {
+if (file.exists(PATH)) {
   pairwise_stats <- readRDS(PATH)
 } else {
   
   # For every pair of assets, get the rolling correlations, means, & stdevs.
   for (i in 1:(NSYM-1)) {
     for (j in (i+1):NSYM) {
+      start.time <- Sys.time()
       key <- paste0(SYMS[i], ",", SYMS[j])
-      print(key)
       pairwise_stats[[key]] <- rolling_stats(
         x=mid_by_sym[[SYMS[i]]]$mid,
         y=mid_by_sym[[SYMS[j]]]$mid,
         wlen=WINDOW_LEN
       )
+      end.time <- Sys.time()
+      print(sprintf("Inner loop: %.2f minutes", 
+                    difftime(end.time, start.time, units="mins")))
     }
   }
   
@@ -224,22 +244,21 @@ if (FALSE) { #file.exists(PATH)) {
 }
 ```
 
+
 ## Signal construction
 
 At every point in time, we have computed the correlation matrix for this group of assets. Our assumption is that the eigenvectors of this correlation matrix are either mean-reverting or random walks. We assume that the largest eigenvectors are always the random walk, and the later ones (with smaller singular values) are mean-reverting. In theory, it might be possible that the first and third components are mean reverting while the second is a random walk; however, testing this would require testing $2^n$ subsets which is impractical. Nevertheless, this assumption makes sense. In the random walk direction, you expect the variance to keep increasing in time, while in a mean reverting direction you expect it to reach a maximum and stabilize. 
 
-At every point in time, we want to compute the eigenvectors of the correlation matrix. That is, given our correlation matrix $\hat{\Sigma}$, we do eigen-decomposition to get eigenvectors $V$.
-
-We then project each vector of prices $\vec{x}$ into this eigenvector space by multiplying by $V = V^T$: 
+At every point in time, we want to compute the eigenvectors of the correlation matrix. That is, given our correlation matrix $\hat{\Sigma}$, we do eigen-decomposition to get eigenvectors $V$. Because the correlation matrix is symmetric, the eigenvectors are orthogonal to one another. Therefore, they form an orthonormal basis. We can multiply by the matrix of normalized eigenvectors (an orthonormal matrix) to get a vector $\vec{\xi}$. Each component of this vector represents how much of each eigenvector this particular $\vec{\xi}$ contains:
 $$
 \vec{\xi} = V \vec{x}
 $$
 
-By assumption, we assume that some components of this vector are mean-reverting, so we set them to zero and convert back into the original vector space (of prices): 
+By assumption, we assume that some components of this vector are mean-reverting, so we set them to zero. Then, we apply the inverse linear transformation (i.e. back into the standard basis). Since $V$ is orthonormal, $V = V^{-1}$:
 $$
 \vec{x}^* = D V \begin{bmatrix} \xi_1 \\ \xi_2 \\ 0 \\ \vdots \end{bmatrix} + \underline{\vec{x}}
 $$
-Here, $D$ is the diagonal matrix of standard deviations, and $\underline{\vec{x}}$ is the exponential mean of prices. Essentially, this projects the vector (in eigen-space) back onto the mean-reverting subspace, converts this back to our price space, and unnormalizes by re-scaling by volatility and adding back the exponential mean. 
+Here, $D$ is the diagonal matrix of standard deviations, and $\underline{\vec{x}}$ is the exponential mean of prices. This converts from the eigenbasis to the standard basis, and un-normalizes by re-scaling by volatility and adding back the exponential mean. 
 
 
 ```{r}
@@ -329,13 +348,13 @@ for (i in 1:NSYM) {
 
 Now, let's pick a few instruments and plot how the signal evolves over lag. 
 ```{r}
-LAG_SEQ <- seq(1, 1000, by=10)
+LAG_SEQ <- seq(1, 2000, by=100)
 
 # For a series of lags, plot the signal strength for `size` random instruments.
 plot_strength_by_lag <- function(size) {
   
   # Sample the instruments randomly. 
-  indices <- sample(1:NSYM, size=size, replace=FALSE)
+  indices <- sample(1:NSYM, size=size, replace=FALSE) 
   
   # Save the coefficients and errors in them. 
   coefs <- matrix(data=NA, nrow=length(LAG_SEQ), ncol=size)
@@ -347,7 +366,8 @@ plot_strength_by_lag <- function(size) {
     x <- head(signals, -lag) / TICKSZ # Drop last LAG elements. 
     
     for (j in 1:size) {
-      model = lm(y[,j] ~ x[,j] + 0)
+      idx <- indices[j]
+      model = lm(y[,idx] ~ x[,idx] + 0)
       coefs[i,j] <- summary(model)$coefficients[1,1]
       stderrs[i,j] <- summary(model)$coefficients[1,2]
     }
