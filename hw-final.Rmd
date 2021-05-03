@@ -374,8 +374,9 @@ plot_strength_by_lag <- function(size) {
   }
   
   for (i in 1:size) {
-    data <- data.frame(x=LAG_SEQ, y=coefs[,i], err=stderrs[,i])
     
+    # Plot error bands with cumulative standard error. 
+    data <- data.frame(x=LAG_SEQ, y=coefs[,i], err=cumsum(stderrs[,i]))
     p <- ggplot(data, aes(x=x, y=y)) +  geom_point() + geom_line()
     p <- p + geom_ribbon(aes(ymin=y-err, ymax=y+err), 
                          linetype=2, alpha=0.4, fill="orange")
@@ -387,9 +388,6 @@ plot_strength_by_lag <- function(size) {
 
 plot_strength_by_lag(2)
 ```
-
-
-
 
 
 
