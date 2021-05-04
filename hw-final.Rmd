@@ -1,8 +1,12 @@
 ---
 title: "Multidimensional Cointegration"
-author: "Oliver Schwartz"
+author:
+- Oliver Schwartz^[Princeton University, oliver.schwartz@princeton.edu]
+- Daniel Gitelman^[Princeton University, danielg@princeton.edu]
 date: "4/28/2021"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -14,6 +18,7 @@ setwd("~/workspace/classes/multi-coint") # Dan TODO: change this dir.
 library(rkdb)
 library(digest)
 library(ggplot2)
+library(zoo)
 ```
 
 
@@ -114,30 +119,27 @@ grid()
 Our assumption is that all 8 prices move back and forth along some subspace, for instance a 1-dimensional line or a 2-dimensional plane. By introducing more degrees of freedom, we model the prices as moving along a higher dimensional subspace in $\mathbb{R}^8$.
 
 First, we must compute exponential rolling averages using a 1-hour window time. At a time $n$, the exponential average is given by $A_n / B_n$ where:
-$$
+
 \begin{align*}
 A_n &= \sum_{j=1}^n e^{-(n-j) / m} x_j \\
 B_n &= \sum_{j=1}^n e^{-(n-j) / m} 
 \end{align*}
-$$
+
 We adjust $m$ according to our desired window size. For simplicity, we will use 1 hour. The smaller this value, the quicker the weights decay, and the less past values influence the exponential average. 
 
 This yields the following recursive update rules, which makes this computation constant at every time step, i.e. O(1).
-$$
 \begin{align*}
 A_n &= e^{-(n-j) / m} x_j = x_n + \sum_{j=1}^{n-1}e^{-(n-j) / m} x_j \\
 &= x_n + e^{-1/m} \cdot \sum_{j=1}^{n-1}e^{-(n-j-1) / m} x_j \\
 &= x_n + e^{-1/m} \cdot A_{n-1}
 \end{align*}
-$$
+
 Similarly, for $B_n$: 
-$$
 \begin{align*}
 B_n &= \sum_{j=1}^n e^{-(n-j) / m} \\
 &= 1 + \sum_{j=1}^{n-1} e^{-(n-j)/m} \\
 &= 1 + e^{-1/m}\cdot B_{n-1}
 \end{align*}
-$$
 
 Computing exponential correlations is a little more involved. Given the exponential average at some time $t=n$ for some instrument $x$, $EMA_x(n) = \frac{A_n}{B_n}$, the exponential covariance $Cov_{e}$ is simply the weighted mean from the beginning of time relative to the current exponential average:
 $$
@@ -260,7 +262,6 @@ $$
 $$
 Here, $D$ is the diagonal matrix of standard deviations, and $\underline{\vec{x}}$ is the exponential mean of prices. This converts from the eigenbasis to the standard basis, and un-normalizes by re-scaling by volatility and adding back the exponential mean. 
 
-
 ```{r}
 missing <- 0
 signals <- matrix(data=NA, nrow=NSEC, ncol=NSYM)
@@ -313,10 +314,24 @@ for (t in 1:NSEC) {
     
     D <- diag(stds)
     p_star <- D %*% V %*% proj + emas
+    
+    ## TODO: plot p_star against the prices as per lec10b slide 23. 
+    
     signals[t,] <- t(p_star) - mids[t,]
   }
 }
 ```
+Let's populate missing signal values with the previous non-missing value. 
+```{r}
+signals <- na.locf(signals, na.rm=FALSE)
+```
+
+
+
+`TODO`: look at signular values over time, plot them. 
+If they stabilize --> mean reverting
+If they keep increasing --> random walk. 
+
 To evaluate the strength of this signal, let's look at the correlation of forward price changes at a given lag with the signal, for each asset. 
 ```{r}
 LAG <- 120
@@ -376,7 +391,7 @@ plot_strength_by_lag <- function(size) {
   for (i in 1:size) {
     
     # Plot error bands with cumulative standard error. 
-    data <- data.frame(x=LAG_SEQ, y=coefs[,i], err=cumsum(stderrs[,i]))
+    data <- data.frame(x=LAG_SEQ, y=coefs[,i], err=stderrs[,i])
     p <- ggplot(data, aes(x=x, y=y)) +  geom_point() + geom_line()
     p <- p + geom_ribbon(aes(ymin=y-err, ymax=y+err), 
                          linetype=2, alpha=0.4, fill="orange")
@@ -388,17 +403,6 @@ plot_strength_by_lag <- function(size) {
 
 plot_strength_by_lag(2)
 ```
-
-
-
-
-
-
-
-
-
-
-
 
 
 
