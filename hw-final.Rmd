@@ -2,8 +2,8 @@
 title: "Multidimensional Cointegration"
 author:
 - Oliver Schwartz^[Princeton University, oliver.schwartz@princeton.edu]
-- Daniel Gitelman^[Princeton University, danielg@princeton.edu]
-date: "4/28/2021"
+- Daniel Gitelman^[Princeton University, daniel.gitelman@princeton.edu]
+date: "5/5/2021"
 output:
   pdf_document: default
   html_document: default
@@ -12,7 +12,7 @@ output:
 ```{r setup, include=FALSE}
 # Setup.
 knitr::opts_chunk$set(echo = TRUE)
-setwd("~/workspace/classes/multi-coint") # Dan TODO: change this dir. 
+setwd("C:/Users/dangi/Dropbox/Classes/orf445/multi-coint")
 
 # Imports. 
 library(rkdb)
@@ -265,6 +265,7 @@ Here, $D$ is the diagonal matrix of standard deviations, and $\underline{\vec{x}
 ```{r}
 missing <- 0
 signals <- matrix(data=NA, nrow=NSEC, ncol=NSYM)
+svals <- matrix(data=NA, nrow=NSEC, ncol=NSYM)
 
 for (t in 1:NSEC) {
   
@@ -307,10 +308,11 @@ for (t in 1:NSEC) {
       
     # Get eigenvectors & project onto eigenvector space. 
     V <- eigen(m)$vectors
+    svals[t,] <- eigen(m)$values
     proj <- V %*% zs
     
     # Set mean reverting directions to 0 to project onto reverting subspace.
-    proj[3:8,] <- 0
+    proj[2:8,] <- 0
     
     D <- diag(stds)
     p_star <- D %*% V %*% proj + emas
@@ -321,16 +323,25 @@ for (t in 1:NSEC) {
   }
 }
 ```
-Let's populate missing signal values with the previous non-missing value. 
+Let's populate missing signal values with the previous non-missing value, and calculate the singular values by taking the square root of ordered eigenvalues. 
 ```{r}
 signals <- na.locf(signals, na.rm=FALSE)
+svals <- sqrt(svals)
+svals <- na.locf(svals, na.rm=FALSE)
 ```
 
+We now plot the evolution of the correlation matrix singular values over the course of the trading day.
+```{r}
+plot(svals[,1],type="l",ylim=c(0,2.5),xlab='Time', ylab='Singular Value',
+     main='Evolution of Correlation Matrix Singular Values',col='orange')
+for (i in 2:NSYM) {
+  lines(svals[,i])
+}
+legend(41000, 1.85, legend=c("1st Sing. Val", "2nd-8th Sing. Vals"),
+       col=c("orange", "black"), lty=1, cex=0.8)
+```
 
-
-`TODO`: look at signular values over time, plot them. 
-If they stabilize --> mean reverting
-If they keep increasing --> random walk. 
+We can observe from the above that the first singular value is distinctly larger than the remaining seven singular values, indicating that perhaps only the first transformed dimension is a random walk while the remaining are mean-reverting. This motivates the setting of transformed dimensions 2-8 to 0 in the previous calculation of the signal.
 
 To evaluate the strength of this signal, let's look at the correlation of forward price changes at a given lag with the signal, for each asset. 
 ```{r}
@@ -359,7 +370,7 @@ for (i in 1:NSYM) {
                                           gradient, stderr)))
 }
 ```
-
+We can observe rather strong signals across the different Eurodollar maturities, with an increase in gradient values the closer the maturity is. This can likely be a result of higher liquidity in these symbols, with larger trading volume allowing for quicker reversions to the "expected" price as per the signal.
 
 Now, let's pick a few instruments and plot how the signal evolves over lag. 
 ```{r}
@@ -401,8 +412,7 @@ plot_strength_by_lag <- function(size) {
   }
 }
 
-plot_strength_by_lag(2)
+plot_strength_by_lag(NSYM)
 ```
 
-
-
+For all instruments, we can observe that the predictable price motion increases with larger lags, indicating that prices are more likely to mean revert as we allow for more time to do so. Again, symbols with nearer maturities appear to demonstrate higher predictable price motions.
